@@ -20,7 +20,8 @@
             },
             "extensions": [
                 "ms-python.python",
-                "ms-azuretools.vscode-bicep"
+                "ms-azuretools.vscode-bicep",
+                "ms-ossdata.vscode-pgsql"
             ]
         }
     },

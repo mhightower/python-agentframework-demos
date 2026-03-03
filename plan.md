@@ -173,7 +173,6 @@ Today we'll cover...
 • Requests and responses: structured human interaction
 • Checkpoints and resuming: durable HITL workflows
 • Handoff with HITL: interactive multi-agent routing
-• Magentic with HITL: plan review before execution
 ```
 
 ### Slide 4: Follow along
@@ -248,6 +247,7 @@ HITL patterns in agent-framework
 
                  Magentic + HITL           Complex planning with human review
                                            before executing multi-step plans
+                                           (not covered today)
 ```
 
 ### Slide 9: Section — Tool Approval
@@ -767,7 +767,43 @@ Speaker notes:
   any backend you want. Let's see what that looks like with PostgreSQL."
 ```
 
-### Slide 26: Custom checkpoint storage — PostgreSQL example
+### Slide 26: Designing checkpoint storage
+```
+Designing your checkpoint storage
+
+Schema example (PostgreSQL):
+
+  id              workflow_name      timestamp                   data
+  ─────────────   ────────────────   ─────────────────────────   ──────────────
+  abc-001         content_review     2026-03-03T14:22:01+00:00   {"executor_...
+  abc-002         content_review     2026-03-03T14:22:03+00:00   {"executor_...
+  def-001         trip_planner:42    2026-03-03T15:10:44+00:00   {"executor_...
+
+Design decisions to consider:
+
+  Question                          Considerations
+  ────────────────────────          ──────────────────────────────────
+  How to scope checkpoints?         Per workflow name? Per user/session?
+                                    e.g. workflow_name = "review:{user_id}"
+
+  How long to keep them?            Prune after completion? TTL? Keep N latest?
+
+  How large are they?               Checkpoints include full message history.
+                                    Long conversations = large JSONB blobs.
+
+  Who can access them?              Row-level security? Separate tables per tenant?
+
+Speaker notes:
+  "Before you write code, think about your schema. At minimum you need an ID,
+  the workflow name for filtering, and a timestamp for ordering. The data column
+  stores the encoded checkpoint as JSON — the framework handles serialization for you.
+  The harder questions are around scoping and lifecycle. In a multi-user app, do you
+  embed the user ID in the workflow name, or add a user_id column? How do you prune
+  old checkpoints? These are application-level decisions the framework doesn't make
+  for you."
+```
+
+### Slide 27: Custom checkpoint storage — PostgreSQL example
 ```
 agent-framework
 
@@ -871,96 +907,7 @@ for event in pending_requests:
 Full example: workflow_hitl_handoff.py
 ```
 
-### Slide 28: Section — Magentic with HITL
-```
-Magentic with HITL
-https://learn.microsoft.com/agent-framework/workflows/orchestrations/magentic
-```
-
-### Slide 29: Magentic plan review
-```
-Magentic orchestration with HITL plan review
-
-    Magentic orchestrator
-
-        Task ledger                          Progress ledger
-
-                    ┌─────────────────────┐
-                    │   Plan Review (HITL) │
-                    │                     │
-                    │   Human can:        │
-                    │   • Approve plan    │
-                    │   • Revise plan     │
-                    └─────────────────────┘
-
-
-        Agent A              Agent B              Agent C
-
-Enable with:
-  workflow = MagenticBuilder(
-    participants=[...],
-    enable_plan_review=True,
-    manager_agent=manager_agent,
-  ).build()
-```
-
-### Slide 30: Magentic HITL code
-```
-agent-framework
-
-Handling Magentic plan review requests
-
-async for event in workflow.run_stream(task):
-  if event.type == "output" and isinstance(event.data, AgentResponseUpdate):
-    print(event.data, end="", flush=True)
-
-  elif event.type == "request_info" and event.request_type is MagenticPlanReviewRequest:
-    plan_request = event
-
-if plan_request:
-  event_data = plan_request.data
-  print(f"Proposed Plan:\n{event_data.plan.text}")
-
-  reply = input("Feedback (Enter to approve): ")
-  if reply.strip() == "":
-    responses = {plan_request.request_id: event_data.approve()}
-  else:
-    responses = {plan_request.request_id: event_data.revise(reply)}
-
-  async for event in workflow.run(responses=responses):
-    # ... handle output events
-
-Full example: workflow_hitl_magentic.py
-```
-
-### Slide 31: HITL patterns comparison
-```
-Choosing the right HITL pattern
-
-Pattern           Trigger                    Response type         Best for
-
-Tool Approval     @tool(approval_mode=       Approve/Reject        Gating sensitive
-                  "always_require")          boolean               operations
-                  Works with Agent or                              (no workflow needed)
-                  workflows
-
-Requests &        ctx.request_info()         Custom dataclass      General Q&A,
-Responses         in any Executor                                  feedback loops
-
-Checkpoints       FileCheckpointStorage      Resume from disk      Long-running tasks,
-                  or InMemoryCheckpoint-                           offline humans,
-                  Storage                                          process restarts
-
-Handoff HITL      HandoffBuilder (no         HandoffAgentUser-     Interactive multi-
-                  autonomous_mode)           Request.create_       agent routing
-                                             response(input)
-
-Magentic HITL     MagenticBuilder(           approve() /           Complex planning
-                  enable_plan_review=        revise(feedback)      with review
-                  True)
-```
-
-### Slide 32: Next steps / resources
+### Slide 29: Next steps / resources
 ```
 Next steps                      Register:
                                 https://aka.ms/PythonAgents/series
